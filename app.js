@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
 
 // v0.1 intentionally contains only the experiment:
-// one navigable splat + three invisible synthetic sound zones.
+// one navigable splat + several invisible synthetic sound zones.
 
 const SPLAT_URL = 'https://huggingface.co/cakewalk/splat-data/resolve/main/garden.splat';
 
@@ -19,10 +19,9 @@ stage.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.05, 500);
 
-// Tuned for the public garden scene. These are also the coordinates used by
-// GaussianSplats3D's own garden demo, converted into a simple free-fly start.
+// Tuned for the public garden scene.
 camera.position.set(-3.15634, 0.16946, 0.51552);
-camera.up.set(0, 1, 0.54).normalize();
+camera.up.set(0, 1, 0);
 camera.lookAt(1.52976, -2.27776, -1.65898);
 
 const viewer = new GaussianSplats3D.Viewer({
@@ -61,7 +60,6 @@ let yaw = 0;
 let pitch = 0;
 let pointerLocked = false;
 
-// Start yaw/pitch from current camera direction so entering doesn't jump.
 const dir = new THREE.Vector3();
 camera.getWorldDirection(dir);
 yaw = Math.atan2(-dir.x, -dir.z);
@@ -90,7 +88,7 @@ document.addEventListener('pointerlockchange', () => {
 
 document.addEventListener('mousemove', (e) => {
   if (!pointerLocked) return;
-  const sensitivity = 0.0018;
+  const sensitivity = 0.00145;
   yaw -= e.movementX * sensitivity;
   pitch -= e.movementY * sensitivity;
   pitch = THREE.MathUtils.clamp(pitch, -Math.PI * 0.48, Math.PI * 0.48);
@@ -124,11 +122,15 @@ function updateNavigation(dt) {
 // ---------------- synthetic spatial audio ----------------
 let audio = null;
 
-// Invisible locations. Deliberately asymmetric so moving around reveals them.
+// Six tighter, separated sound locations. Smaller radii make movement
+// produce obvious transitions instead of one blended sound bed.
 const SOUND_ZONES = [
-  { name: 'rhythm',  position: new THREE.Vector3(-1.1, -0.15, -1.0), radius: 5.0 },
-  { name: 'drone',   position: new THREE.Vector3( 2.8, -0.35, -2.4), radius: 7.0 },
-  { name: 'texture', position: new THREE.Vector3( 0.8, -1.05,  2.5), radius: 4.5 }
+  { name: 'beat-low',     type: 'rhythm',  position: new THREE.Vector3(-2.6,  0.05, -0.1), radius: 2.8, variant: 0 },
+  { name: 'drone-warm',   type: 'drone',   position: new THREE.Vector3( 0.2,  0.10, -2.8), radius: 3.4, variant: 0 },
+  { name: 'texture-air',  type: 'texture', position: new THREE.Vector3( 2.9,  0.20, -1.1), radius: 2.7, variant: 0 },
+  { name: 'pulse-metal',  type: 'pulse',   position: new THREE.Vector3( 3.4,  0.10,  2.2), radius: 2.6, variant: 0 },
+  { name: 'chime-high',   type: 'chime',   position: new THREE.Vector3( 0.7,  0.45,  3.3), radius: 2.8, variant: 0 },
+  { name: 'beat-click',   type: 'rhythm',  position: new THREE.Vector3(-3.4,  0.10,  2.7), radius: 2.6, variant: 1 }
 ];
 
 function createAudioWorld() {
@@ -138,11 +140,13 @@ function createAudioWorld() {
   master.gain.value = 0.72;
   master.connect(ctx.destination);
 
-  const sources = [
-    makeRhythm(ctx, master, SOUND_ZONES[0]),
-    makeDrone(ctx, master, SOUND_ZONES[1]),
-    makeTexture(ctx, master, SOUND_ZONES[2])
-  ];
+  const sources = SOUND_ZONES.map((zone) => {
+    if (zone.type === 'rhythm') return makeRhythm(ctx, master, zone, zone.variant || 0);
+    if (zone.type === 'drone') return makeDrone(ctx, master, zone);
+    if (zone.type === 'texture') return makeTexture(ctx, master, zone);
+    if (zone.type === 'pulse') return makePulse(ctx, master, zone);
+    if (zone.type === 'chime') return makeChime(ctx, master, zone);
+  });
 
   return { ctx, master, sources };
 }
@@ -168,31 +172,38 @@ function makeSpatialChain(ctx, destination, zone) {
   return { input, filter, gain, panner, zone };
 }
 
-function makeRhythm(ctx, destination, zone) {
+function makeRhythm(ctx, destination, zone, variant = 0) {
   const chain = makeSpatialChain(ctx, destination, zone);
   const osc = ctx.createOscillator();
   const pulse = ctx.createGain();
-  osc.type = 'square';
-  osc.frequency.value = 78;
+
+  osc.type = variant === 0 ? 'square' : 'triangle';
+  osc.frequency.value = variant === 0 ? 72 : 185;
   pulse.gain.value = 0;
   osc.connect(pulse).connect(chain.input);
   osc.start();
 
-  const bpm = 92;
-  const step = 60 / bpm / 2;
+  const bpm = variant === 0 ? 88 : 126;
+  const step = 60 / bpm / (variant === 0 ? 2 : 4);
   let next = ctx.currentTime + 0.05;
   let count = 0;
+
   const timer = setInterval(() => {
     while (next < ctx.currentTime + 0.12) {
-      const accent = count % 4 === 0 ? 0.42 : 0.18;
+      const hit = variant === 0
+        ? (count % 4 === 0 ? 0.5 : 0.16)
+        : ([0.26, 0.05, 0.15, 0.05, 0.22, 0.08][count % 6]);
+
       pulse.gain.cancelScheduledValues(next);
       pulse.gain.setValueAtTime(0.0001, next);
-      pulse.gain.exponentialRampToValueAtTime(accent, next + 0.006);
-      pulse.gain.exponentialRampToValueAtTime(0.0001, next + 0.085);
+      pulse.gain.exponentialRampToValueAtTime(Math.max(hit, 0.0002), next + 0.004);
+      pulse.gain.exponentialRampToValueAtTime(0.0001, next + (variant === 0 ? 0.09 : 0.035));
+
       next += step;
       count++;
     }
   }, 40);
+
   return { ...chain, timer };
 }
 
@@ -221,7 +232,7 @@ function makeTexture(ctx, destination, zone) {
   let last = 0;
   for (let i = 0; i < data.length; i++) {
     const white = Math.random() * 2 - 1;
-    last = last * 0.985 + white * 0.015; // soft brown-ish texture
+    last = last * 0.985 + white * 0.015;
     data[i] = last * 3.2;
   }
   const src = ctx.createBufferSource();
@@ -232,6 +243,53 @@ function makeTexture(ctx, destination, zone) {
   src.connect(g).connect(chain.input);
   src.start();
   return chain;
+}
+
+function makePulse(ctx, destination, zone) {
+  const chain = makeSpatialChain(ctx, destination, zone);
+  const osc = ctx.createOscillator();
+  const mod = ctx.createOscillator();
+  const modGain = ctx.createGain();
+  const g = ctx.createGain();
+
+  osc.type = 'sawtooth';
+  osc.frequency.value = 145;
+  mod.type = 'sine';
+  mod.frequency.value = 3.1;
+  modGain.gain.value = 90;
+  g.gain.value = 0.09;
+
+  mod.connect(modGain).connect(osc.frequency);
+  osc.connect(g).connect(chain.input);
+  osc.start();
+  mod.start();
+  return chain;
+}
+
+function makeChime(ctx, destination, zone) {
+  const chain = makeSpatialChain(ctx, destination, zone);
+  const frequencies = [523.25, 659.25, 783.99, 1046.5];
+  let index = 0;
+  let next = ctx.currentTime + 0.15;
+
+  const timer = setInterval(() => {
+    while (next < ctx.currentTime + 0.2) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = frequencies[index % frequencies.length];
+      g.gain.setValueAtTime(0.0001, next);
+      g.gain.exponentialRampToValueAtTime(0.16, next + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, next + 0.5);
+      osc.connect(g).connect(chain.input);
+      osc.start(next);
+      osc.stop(next + 0.55);
+      index++;
+      next += 0.72;
+    }
+  }, 80);
+
+  return { ...chain, timer };
 }
 
 function setPannerPosition(panner, v, t) {
@@ -249,7 +307,6 @@ function updateAudio() {
   const ctx = audio.ctx;
   const now = ctx.currentTime;
 
-  // Web Audio's listener follows the Three.js camera.
   const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
   const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
   const L = ctx.listener;
@@ -272,7 +329,6 @@ function updateAudio() {
   for (const source of audio.sources) {
     const d = camera.position.distanceTo(source.zone.position);
     const normalized = THREE.MathUtils.clamp(1 - d / source.zone.radius, 0, 1);
-    // A smooth perceptual fade plus a distance-controlled low-pass filter.
     const loudness = 0.0001 + Math.pow(normalized, 1.65) * 0.72;
     const cutoff = 220 + Math.pow(normalized, 1.3) * 10500;
     source.gain.gain.setTargetAtTime(loudness, now, 0.075);
