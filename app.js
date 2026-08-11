@@ -21,9 +21,9 @@ const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.05, 5
 
 // Tuned for the public garden scene. These are also the coordinates used by
 // GaussianSplats3D's own garden demo, converted into a simple free-fly start.
-camera.position.set(-3.15634, -0.16946, -0.51552);
-camera.up.set(0, -1, -0.54).normalize();
-camera.lookAt(1.52976, 2.27776, 1.65898);
+camera.position.set(-3.15634, 0.16946, 0.51552);
+camera.up.set(0, 1, 0.54).normalize();
+camera.lookAt(1.52976, -2.27776, -1.65898);
 
 const viewer = new GaussianSplats3D.Viewer({
   selfDrivenMode: false,
@@ -44,7 +44,9 @@ let splatReady = false;
 viewer.addSplatScene(SPLAT_URL, {
   progressiveLoad: true,
   splatAlphaRemovalThreshold: 5,
-  showLoadingUI: true
+  showLoadingUI: true,
+  // Flip the source splat 180° around X so world +Y is up.
+  rotation: [1, 0, 0, 0]
 }).then(() => {
   splatReady = true;
   status.textContent = 'splat ready · click to enter';
@@ -124,9 +126,9 @@ let audio = null;
 
 // Invisible locations. Deliberately asymmetric so moving around reveals them.
 const SOUND_ZONES = [
-  { name: 'rhythm',  position: new THREE.Vector3(-1.1, 0.15,  1.0), radius: 5.0 },
-  { name: 'drone',   position: new THREE.Vector3( 2.8, 0.35,  2.4), radius: 7.0 },
-  { name: 'texture', position: new THREE.Vector3( 0.8, 1.05, -2.5), radius: 4.5 }
+  { name: 'rhythm',  position: new THREE.Vector3(-1.1, -0.15, -1.0), radius: 5.0 },
+  { name: 'drone',   position: new THREE.Vector3( 2.8, -0.35, -2.4), radius: 7.0 },
+  { name: 'texture', position: new THREE.Vector3( 0.8, -1.05,  2.5), radius: 4.5 }
 ];
 
 function createAudioWorld() {
