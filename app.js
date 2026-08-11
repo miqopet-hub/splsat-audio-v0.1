@@ -58,12 +58,16 @@ viewer.addSplatScene(SPLAT_URL, {
 const pressed = new Set();
 let yaw = 0;
 let pitch = 0;
+let targetYaw = 0;
+let targetPitch = 0;
 let pointerLocked = false;
 
 const dir = new THREE.Vector3();
 camera.getWorldDirection(dir);
 yaw = Math.atan2(-dir.x, -dir.z);
 pitch = Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1));
+targetYaw = yaw;
+targetPitch = pitch;
 
 addEventListener('keydown', (e) => pressed.add(e.code));
 addEventListener('keyup', (e) => pressed.delete(e.code));
@@ -88,20 +92,30 @@ document.addEventListener('pointerlockchange', () => {
 
 document.addEventListener('mousemove', (e) => {
   if (!pointerLocked) return;
-  const sensitivity = 0.00145;
-  yaw -= e.movementX * sensitivity;
-  pitch -= e.movementY * sensitivity;
-  pitch = THREE.MathUtils.clamp(pitch, -Math.PI * 0.48, Math.PI * 0.48);
+
+  const sensitivity = 0.00115;
+  targetYaw -= e.movementX * sensitivity;
+  targetPitch -= e.movementY * sensitivity;
+
+  // Keep a clear sense of up/down and prevent near-vertical disorientation.
+  const maxPitch = THREE.MathUtils.degToRad(72);
+  targetPitch = THREE.MathUtils.clamp(targetPitch, -maxPitch, maxPitch);
 });
 
 function updateNavigation(dt) {
+  // Smooth mouse look instead of snapping directly to every pointer delta.
+  const lookSmoothing = 1 - Math.exp(-14 * dt);
+  yaw = THREE.MathUtils.lerp(yaw, targetYaw, lookSmoothing);
+  pitch = THREE.MathUtils.lerp(pitch, targetPitch, lookSmoothing);
+
   camera.rotation.order = 'YXZ';
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
   camera.rotation.z = 0;
 
-  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+  // Walking direction uses yaw only. Looking up/down never makes W/S fly.
+  const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
   const up = new THREE.Vector3(0, 1, 0);
 
   const move = new THREE.Vector3();
