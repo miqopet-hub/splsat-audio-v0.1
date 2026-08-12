@@ -2,39 +2,23 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Splat Audio v0.1</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>Splat Audio Playground</title>
   <style>
-    html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#000; color:#eee; font-family:Arial, Helvetica, sans-serif; }
-    #stage { position:fixed; inset:0; }
-    canvas { display:block; }
-    #enter {
-      position:fixed; inset:0; z-index:10; display:grid; place-items:center;
-      background:rgba(0,0,0,.58); border:0; color:#fff; cursor:pointer;
-      font:600 14px/1.45 Arial, Helvetica, sans-serif; letter-spacing:.04em;
-    }
-    #enter span { text-align:center; padding:22px; }
-    #enter small { display:block; margin-top:8px; opacity:.65; font-weight:400; letter-spacing:0; }
-    #status {
-      position:fixed; left:14px; bottom:12px; z-index:4; pointer-events:none;
-      font:11px/1.35 monospace; color:rgba(255,255,255,.55); white-space:pre;
-    }
-    #crosshair { position:fixed; left:50%; top:50%; width:5px; height:5px; border:1px solid rgba(255,255,255,.35); border-radius:50%; transform:translate(-50%,-50%); z-index:3; pointer-events:none; }
+    *{box-sizing:border-box} html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#000;color:#eee;font-family:Arial,sans-serif;touch-action:none} #stage{position:fixed;inset:0} canvas{display:block;width:100%;height:100%;touch-action:none}
+    #enter{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(0,0,0,.58);border:0;color:#fff;cursor:pointer;font:600 14px/1.45 Arial,sans-serif;letter-spacing:.04em} #enter span{text-align:center;padding:22px} #enter small{display:block;margin-top:8px;opacity:.68;font-weight:400;letter-spacing:0}
+    #toolbar{position:fixed;top:max(10px,env(safe-area-inset-top));left:10px;right:10px;z-index:12;display:flex;gap:8px;align-items:center;pointer-events:auto} #sceneSelect,#resetView{appearance:none;border:1px solid rgba(255,255,255,.18);background:rgba(10,10,10,.72);color:#fff;border-radius:10px;height:38px;padding:0 12px;backdrop-filter:blur(10px);font:12px Arial,sans-serif} #sceneSelect{max-width:min(72vw,320px)}
+    #status{position:fixed;left:12px;bottom:max(10px,env(safe-area-inset-bottom));z-index:8;pointer-events:none;max-width:80vw;font:10px/1.35 monospace;color:rgba(255,255,255,.48);white-space:pre-wrap} #crosshair{position:fixed;left:50%;top:50%;width:5px;height:5px;border:1px solid rgba(255,255,255,.3);border-radius:50%;transform:translate(-50%,-50%);z-index:7;pointer-events:none}
+    #mobileControls{display:none;position:fixed;inset:0;z-index:9;pointer-events:none} #movePad{position:absolute;left:18px;bottom:max(24px,calc(env(safe-area-inset-bottom) + 16px));width:132px;height:132px;border-radius:50%;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.035);pointer-events:auto;touch-action:none} #moveKnob{position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px;border-radius:50%;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);pointer-events:none} #lookPad{position:absolute;right:0;top:64px;bottom:0;width:58%;pointer-events:auto;touch-action:none} #mobileHint{position:absolute;right:16px;bottom:max(20px,calc(env(safe-area-inset-bottom) + 12px));font:10px/1.3 Arial,sans-serif;color:rgba(255,255,255,.45);text-align:right;pointer-events:none}
+    @media (pointer:coarse),(max-width:800px){#mobileControls{display:block}#status{bottom:168px;max-width:56vw}#enter small.desktop{display:none}} @media (pointer:fine) and (min-width:801px){#enter small.mobile{display:none}}
   </style>
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-      "@mkkellogg/gaussian-splats-3d": "https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js"
-    }
-  }
-  </script>
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","@mkkellogg/gaussian-splats-3d":"https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js"}}</script>
 </head>
 <body>
-  <div id="stage"></div>
-  <div id="crosshair"></div>
-  <button id="enter" type="button"><span>CLICK TO ENTER<small>WASD move · mouse look · Q/E down/up · Shift faster · Esc releases mouse</small></span></button>
-  <div id="status">loading splat…</div>
-  <script type="module" src="./app.js"></script>
+  <div id="stage"></div><div id="crosshair"></div>
+  <div id="toolbar"><select id="sceneSelect"></select><button id="resetView" type="button">Reset view</button></div>
+  <button id="enter" type="button"><span>ENTER SPLAT AUDIO<small class="desktop">WASD move · mouse look · Q/E down/up · Shift faster · Esc releases mouse</small><small class="mobile">Left thumb moves · drag right side to look</small></span></button>
+  <div id="mobileControls"><div id="movePad"><div id="moveKnob"></div></div><div id="lookPad"></div><div id="mobileHint">move ← left thumb &nbsp;&nbsp; right side → look</div></div>
+  <div id="status">loading splat…</div><script type="module" src="./app.js"></script>
 </body>
 </html>
