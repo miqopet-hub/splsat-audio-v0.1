@@ -18,7 +18,7 @@ const lookPad=document.querySelector('#lookPad');
 SCENES.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=s.label;sceneSelect.appendChild(o)});
 
 const isMobile=()=>matchMedia('(pointer:coarse)').matches||innerWidth<800;
-const camera=new THREE.PerspectiveCamera(isMobile()?67:62,innerWidth/innerHeight,.04,800);
+const camera=new THREE.PerspectiveCamera(isMobile()?67:62,innerWidth/innerHeight,.04,1000);
 camera.up.set(0,1,0);
 const scene=new THREE.Scene();
 const renderer=new THREE.WebGLRenderer({antialias:false,alpha:false,powerPreference:isMobile()?'low-power':'high-performance'});
@@ -31,12 +31,12 @@ scene.add(spark);
 const canvas=renderer.domElement;
 
 let currentScene=SCENES[0],currentSplat=null,splatReady=false,loadToken=0;
-let bounds=new THREE.Box3(new THREE.Vector3(-5,0,-5),new THREE.Vector3(5,3,5));
+let bounds=new THREE.Box3(new THREE.Vector3(-5,-2,-5),new THREE.Vector3(5,2,5));
+let sceneInfo='';
 
 canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();status.textContent='graphics memory reset · restoring…'});
 canvas.addEventListener('webglcontextrestored',()=>{status.textContent='graphics restored';loadScene(currentScene)});
 
-// ---------- navigation ----------
 const pressed=new Set();
 let yaw=0,pitch=0,targetYaw=0,targetPitch=0;
 let mouseDragging=false,lastMouseX=0,lastMouseY=0,wheelVelocity=0;
@@ -103,7 +103,6 @@ function updateNavigation(dt){
   if(!isMobile()&&Math.abs(wheelVelocity)>.0001){camera.position.addScaledVector(forward,-wheelVelocity*base*2);wheelVelocity*=Math.exp(-10*dt)}
 }
 
-// ---------- scene library ----------
 sceneSelect.addEventListener('change',async()=>{const s=SCENES.find(x=>x.id===sceneSelect.value);if(s)await loadScene(s)});
 resetViewButton.addEventListener('click',()=>{resetHumanView();resetViewButton.blur()});
 
@@ -112,7 +111,30 @@ async function disposeCurrentSplat(){
   try{scene.remove(currentSplat)}catch{}
   try{currentSplat.dispose()}catch(e){console.warn('splat dispose',e)}
   currentSplat=null;
-  if(isMobile())await new Promise(r=>setTimeout(r,80));
+  if(isMobile())await new Promise(r=>setTimeout(r,100));
+}
+
+function transformedBox(localBox,matrix){
+  const out=new THREE.Box3();out.makeEmpty();
+  const min=localBox.min,max=localBox.max;
+  for(const x of [min.x,max.x])for(const y of [min.y,max.y])for(const z of [min.z,max.z]){
+    out.expandByPoint(new THREE.Vector3(x,y,z).applyMatrix4(matrix));
+  }
+  return out;
+}
+
+function normalizeSplatToWorld(splat,localBox){
+  // Keep the established 180° X correction, then translate the rotated
+  // local center to world origin. This prevents arbitrary dataset coordinates
+  // from pushing the camera outside the actual scene.
+  splat.quaternion.set(1,0,0,0);
+  splat.position.set(0,0,0);
+  splat.updateMatrixWorld(true);
+  const localCenter=localBox.getCenter(new THREE.Vector3());
+  const rotatedCenter=localCenter.clone().applyQuaternion(splat.quaternion);
+  splat.position.copy(rotatedCenter).multiplyScalar(-1);
+  splat.updateMatrixWorld(true);
+  bounds.copy(transformedBox(localBox,splat.matrixWorld));
 }
 
 async function loadScene(s){
@@ -125,28 +147,30 @@ async function loadScene(s){
     let lastPct=-1;
     const splat=new SplatMesh({
       url:s.url,
+      fileType:'splat',
       editable:false,
       raycastable:false,
+      extSplats:isMobile(),
       onProgress:e=>{
         if(token!==loadToken)return;
         if(e.total){const pct=Math.floor(e.loaded/e.total*100);if(pct!==lastPct){lastPct=pct;status.textContent=`loading ${s.label} · ${pct}%`;}}
       }
     });
-    splat.quaternion.set(1,0,0,0);
-    splat.maxSh=0;
     currentSplat=splat;scene.add(splat);
     await splat.initialized;
     if(token!==loadToken){scene.remove(splat);splat.dispose();return;}
+    splat.maxSh=0;
     try{splat.updateGenerator()}catch{}
-    splat.updateMatrixWorld(true);
     const local=splat.getBoundingBox(true);
-    bounds.copy(local).applyMatrix4(splat.matrixWorld);
+    normalizeSplatToWorld(splat,local);
+    const size=bounds.getSize(new THREE.Vector3());
+    sceneInfo=`box ${size.x.toFixed(1)}×${size.y.toFixed(1)}×${size.z.toFixed(1)}`;
     resetHumanView();
     updateSoundLayout();
     splatReady=true;
-    status.textContent=`${s.label} · ${splat.numSplats?.toLocaleString?.()||''} splats · 20 spatial sounds`;
+    status.textContent=`${s.label} · ${sceneInfo}`;
   }catch(e){
-    console.error(e);status.textContent=`${s.label} failed to load`;
+    console.error(e);status.textContent=`${s.label} failed: ${e?.message||e}`;
   }finally{
     if(token===loadToken){sceneSelect.disabled=false;resetViewButton.disabled=false;}
   }
@@ -154,16 +178,16 @@ async function loadScene(s){
 
 function resetHumanView(){
   const c=bounds.getCenter(new THREE.Vector3()),s=bounds.getSize(new THREE.Vector3());
-  const eye=bounds.min.y+THREE.MathUtils.clamp(s.y*.18,1.45,1.72);
-  camera.position.set(c.x,eye,c.z+Math.max(s.z*.08,.35));
-  camera.lookAt(c.x,eye,c.z-Math.max(s.z*.22,1));
+  const eye=bounds.min.y+THREE.MathUtils.clamp(s.y*.22,1.45,1.72);
+  // Start near the center, but not exactly at the densest point of the scene.
+  camera.position.set(c.x,eye,c.z+THREE.MathUtils.clamp(s.z*.18,.8,Math.max(1.2,s.z*.35)));
+  camera.lookAt(c.x,eye,c.z-Math.max(s.z*.16,.8));
   const d=new THREE.Vector3();camera.getWorldDirection(d);
   yaw=targetYaw=Math.atan2(-d.x,-d.z);pitch=targetPitch=0;camera.rotation.z=0;wheelVelocity=0;
   moveTouch={x:0,y:0};if(moveKnob)moveKnob.style.transform='translate(0,0)';
 }
 function sceneExtent(){const s=bounds.getSize(new THREE.Vector3());return Math.max(s.x,s.z,4)}
 
-// ---------- spatial audio ----------
 let audio=null,SOUND_ZONES=[];
 const PRESETS=[
  ['soft kick','hit',58,.78,'sine'],['wood click','hit',180,.43,'triangle'],['low drone','drone',48,.13,'sine'],['warm drone','drone',73,.21,'triangle'],['air','noise',.992],['dust','noise',.975],['bell A','bell',392,2.3],['bell B','bell',523.25,3.1],['pulse A','pulse',96,2.2],['pulse B','pulse',142,3.7],['glass','bell',659.25,4.1],['sub','drone',36,.09,'sine'],['tap','hit',260,.62,'square'],['flutter','pulse',210,7.5],['hiss','noise',.94],['tone 1','drone',110,.17,'sine'],['tone 2','drone',146.8,.11,'triangle'],['chime','bell',783.99,5.4],['heartbeat','hit',72,.92,'sine'],['shimmer','pulse',330,5.2]
@@ -233,7 +257,6 @@ function updateAudio(){
   });
 }
 
-// ---------- render ----------
 let previous=performance.now(),lastMobileRender=0;
 function frame(now){
   requestAnimationFrame(frame);
@@ -242,7 +265,7 @@ function frame(now){
   if(!isMobile()||now-lastMobileRender>=33){renderer.render(scene,camera);lastMobileRender=now;}
   if(audio&&splatReady){
     const nearest=audio.sources.map(s=>({name:s.zone.name,d:camera.position.distanceTo(s.zone.position)})).sort((a,b)=>a.d-b.d).slice(0,3);
-    status.textContent=`${currentScene.label}\nnearest: ${nearest.map(x=>`${x.name} ${x.d.toFixed(1)}m`).join(' · ')}`;
+    status.textContent=`${currentScene.label} · ${sceneInfo}\nnearest: ${nearest.map(x=>`${x.name} ${x.d.toFixed(1)}m`).join(' · ')}`;
   }
 }
 requestAnimationFrame(frame);
