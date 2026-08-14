@@ -28,7 +28,13 @@
     @media (pointer:fine) and (min-width:801px){#enter small.mobile{display:none}}
   </style>
   <script type="importmap">
-  {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","@sparkjsdev/spark":"https://sparkjs.dev/releases/spark/2.1.0/spark.module.js"}}
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/2.1.0/spark.module.js"
+    }
+  }
   </script>
 </head>
 <body>
@@ -38,6 +44,23 @@
   <button id="enter" type="button"><span>ENTER SPLAT AUDIO<small class="desktop">Drag to look · WASD walk · wheel moves forward/back · Q/E down/up · Shift faster</small><small class="mobile">Left thumb moves · drag right side to look</small></span></button>
   <div id="mobileControls"><div id="movePad"><div id="moveKnob"></div></div><div id="lookPad"></div><div id="mobileHint">left thumb: move<br>right side: look</div></div>
   <div id="status">loading scene…</div>
+  <script>
+    // If the ES-module graph fails before app.js can run, don't leave a silent black screen.
+    window.addEventListener('error', function (event) {
+      const status = document.getElementById('status');
+      if (!status) return;
+      const msg = event && event.message ? event.message : 'module failed to start';
+      status.textContent = 'startup error: ' + msg;
+      status.style.color = 'rgba(255,150,150,.95)';
+    });
+    window.addEventListener('unhandledrejection', function (event) {
+      const status = document.getElementById('status');
+      if (!status) return;
+      const reason = event && event.reason;
+      status.textContent = 'startup error: ' + (reason && reason.message ? reason.message : String(reason || 'unknown error'));
+      status.style.color = 'rgba(255,150,150,.95)';
+    });
+  </script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>
