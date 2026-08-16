@@ -18,12 +18,12 @@ const lookPad=document.querySelector('#lookPad');
 SCENES.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=s.label;sceneSelect.appendChild(o)});
 
 const isMobile=()=>matchMedia('(pointer:coarse)').matches||innerWidth<800;
-const camera=new THREE.PerspectiveCamera(isMobile()?67:62,innerWidth/innerHeight,.04,1000);
+const camera=new THREE.PerspectiveCamera(isMobile()?67:62,innerWidth/innerHeight,.05,2000);
 camera.up.set(0,1,0);
 const scene=new THREE.Scene();
 const renderer=new THREE.WebGLRenderer({antialias:false,alpha:false,powerPreference:isMobile()?'low-power':'high-performance'});
 renderer.setClearColor(0x000000,1);
-renderer.setPixelRatio(Math.min(devicePixelRatio||1,isMobile()?.78:1.35));
+renderer.setPixelRatio(Math.min(devicePixelRatio||1,isMobile()?.8:1.35));
 renderer.setSize(innerWidth,innerHeight);
 stage.appendChild(renderer.domElement);
 const spark=new SparkRenderer({renderer});
@@ -60,7 +60,7 @@ canvas.addEventListener('pointerdown',e=>{
 });
 canvas.addEventListener('pointermove',e=>{
   if(!mouseDragging||isMobile()||e.pointerType==='touch')return;
-  lookDelta(e.clientX-lastMouseX,e.clientY-lastMouseY,.0020);
+  lookDelta(e.clientX-lastMouseX,e.clientY-lastMouseY,.002);
   lastMouseX=e.clientX;lastMouseY=e.clientY;
 });
 const stopDrag=e=>{mouseDragging=false;canvas.classList.remove('dragging');try{canvas.releasePointerCapture?.(e.pointerId)}catch{}};
@@ -77,8 +77,9 @@ if(movePad&&lookPad){
     moveTouch={x:x/max,y:y/max};moveKnob.style.transform=`translate(${x}px,${y}px)`;
   }
   function releaseMovePad(e){if(e.pointerId!==movePointer)return;movePointer=null;moveTouch={x:0,y:0};moveKnob.style.transform='translate(0,0)'}
+
   lookPad.addEventListener('pointerdown',e=>{lookPointer=e.pointerId;lastLookX=e.clientX;lastLookY=e.clientY;lookPad.setPointerCapture(e.pointerId);if(audio?.ctx.state==='suspended')audio.ctx.resume()});
-  lookPad.addEventListener('pointermove',e=>{if(e.pointerId!==lookPointer)return;lookDelta(e.clientX-lastLookX,e.clientY-lastLookY,.0030);lastLookX=e.clientX;lastLookY=e.clientY});
+  lookPad.addEventListener('pointermove',e=>{if(e.pointerId!==lookPointer)return;lookDelta(e.clientX-lastLookX,e.clientY-lastLookY,.003);lastLookX=e.clientX;lastLookY=e.clientY});
   const releaseLook=e=>{if(e.pointerId===lookPointer)lookPointer=null};
   lookPad.addEventListener('pointerup',releaseLook);lookPad.addEventListener('pointercancel',releaseLook);
 }
@@ -95,7 +96,7 @@ function updateNavigation(dt){
   if(pressed.has('KeyE'))move.add(up);if(pressed.has('KeyQ'))move.sub(up);
   if(Math.abs(moveTouch.x)>.03)move.addScaledVector(right,moveTouch.x);
   if(Math.abs(moveTouch.y)>.03)move.addScaledVector(forward,-moveTouch.y);
-  const ext=sceneExtent(),base=THREE.MathUtils.clamp(ext*.055,.65,1.9);
+  const base=THREE.MathUtils.clamp(sceneExtent()*.055,.65,2.4);
   if(move.lengthSq()){
     const fast=pressed.has('ShiftLeft')||pressed.has('ShiftRight');
     move.normalize().multiplyScalar(base*(fast?2.8:1)*dt*(isMobile()?.92:1));camera.position.add(move);
@@ -104,7 +105,7 @@ function updateNavigation(dt){
 }
 
 sceneSelect.addEventListener('change',async()=>{const s=SCENES.find(x=>x.id===sceneSelect.value);if(s)await loadScene(s)});
-resetViewButton.addEventListener('click',()=>{resetHumanView();resetViewButton.blur()});
+resetViewButton.addEventListener('click',()=>{resetOverview();resetViewButton.blur()});
 
 async function disposeCurrentSplat(){
   if(!currentSplat)return;
@@ -115,24 +116,19 @@ async function disposeCurrentSplat(){
 }
 
 function transformedBox(localBox,matrix){
-  const out=new THREE.Box3();out.makeEmpty();
+  const out=new THREE.Box3().makeEmpty();
   const min=localBox.min,max=localBox.max;
-  for(const x of [min.x,max.x])for(const y of [min.y,max.y])for(const z of [min.z,max.z]){
+  for(const x of [min.x,max.x])for(const y of [min.y,max.y])for(const z of [min.z,max.z])
     out.expandByPoint(new THREE.Vector3(x,y,z).applyMatrix4(matrix));
-  }
   return out;
 }
 
-function normalizeSplatToWorld(splat,localBox){
-  // Keep the established 180° X correction, then translate the rotated
-  // local center to world origin. This prevents arbitrary dataset coordinates
-  // from pushing the camera outside the actual scene.
+function centerSplat(splat,localBox){
   splat.quaternion.set(1,0,0,0);
   splat.position.set(0,0,0);
   splat.updateMatrixWorld(true);
-  const localCenter=localBox.getCenter(new THREE.Vector3());
-  const rotatedCenter=localCenter.clone().applyQuaternion(splat.quaternion);
-  splat.position.copy(rotatedCenter).multiplyScalar(-1);
+  const center=localBox.getCenter(new THREE.Vector3()).applyQuaternion(splat.quaternion);
+  splat.position.copy(center).multiplyScalar(-1);
   splat.updateMatrixWorld(true);
   bounds.copy(transformedBox(localBox,splat.matrixWorld));
 }
@@ -147,25 +143,24 @@ async function loadScene(s){
     let lastPct=-1;
     const splat=new SplatMesh({
       url:s.url,
-      fileType:'splat',
       editable:false,
       raycastable:false,
-      extSplats:isMobile(),
       onProgress:e=>{
         if(token!==loadToken)return;
         if(e.total){const pct=Math.floor(e.loaded/e.total*100);if(pct!==lastPct){lastPct=pct;status.textContent=`loading ${s.label} · ${pct}%`;}}
       }
     });
-    currentSplat=splat;scene.add(splat);
+    currentSplat=splat;
+    scene.add(splat);
     await splat.initialized;
     if(token!==loadToken){scene.remove(splat);splat.dispose();return;}
-    splat.maxSh=0;
-    try{splat.updateGenerator()}catch{}
+
     const local=splat.getBoundingBox(true);
-    normalizeSplatToWorld(splat,local);
+    if(!local||local.isEmpty()||![local.min.x,local.min.y,local.min.z,local.max.x,local.max.y,local.max.z].every(Number.isFinite))throw new Error('invalid splat bounds');
+    centerSplat(splat,local);
     const size=bounds.getSize(new THREE.Vector3());
-    sceneInfo=`box ${size.x.toFixed(1)}×${size.y.toFixed(1)}×${size.z.toFixed(1)}`;
-    resetHumanView();
+    sceneInfo=`box ${size.x.toFixed(1)}×${size.y.toFixed(1)}×${size.z.toFixed(1)} · ${splat.numSplats?.toLocaleString?.()||'?'} splats`;
+    resetOverview();
     updateSoundLayout();
     splatReady=true;
     status.textContent=`${s.label} · ${sceneInfo}`;
@@ -176,15 +171,16 @@ async function loadScene(s){
   }
 }
 
-function resetHumanView(){
+function resetOverview(){
   const c=bounds.getCenter(new THREE.Vector3()),s=bounds.getSize(new THREE.Vector3());
-  const eye=bounds.min.y+THREE.MathUtils.clamp(s.y*.22,1.45,1.72);
-  // Start near the center, but not exactly at the densest point of the scene.
-  camera.position.set(c.x,eye,c.z+THREE.MathUtils.clamp(s.z*.18,.8,Math.max(1.2,s.z*.35)));
-  camera.lookAt(c.x,eye,c.z-Math.max(s.z*.16,.8));
+  const radius=Math.max(s.x,s.y,s.z,2);
+  camera.position.set(c.x,c.y+radius*.08,c.z+radius*.9);
+  camera.lookAt(c);
   const d=new THREE.Vector3();camera.getWorldDirection(d);
-  yaw=targetYaw=Math.atan2(-d.x,-d.z);pitch=targetPitch=0;camera.rotation.z=0;wheelVelocity=0;
-  moveTouch={x:0,y:0};if(moveKnob)moveKnob.style.transform='translate(0,0)';
+  yaw=targetYaw=Math.atan2(-d.x,-d.z);
+  pitch=targetPitch=Math.asin(THREE.MathUtils.clamp(d.y,-1,1));
+  camera.rotation.order='YXZ';camera.rotation.y=yaw;camera.rotation.x=pitch;camera.rotation.z=0;
+  wheelVelocity=0;moveTouch={x:0,y:0};if(moveKnob)moveKnob.style.transform='translate(0,0)';
 }
 function sceneExtent(){const s=bounds.getSize(new THREE.Vector3());return Math.max(s.x,s.z,4)}
 
@@ -196,7 +192,7 @@ const PRESETS=[
 enter.addEventListener('click',async()=>{if(!audio)audio=createAudioWorld();await audio.ctx.resume();enter.style.display='none'});
 
 function distributeZones(){
-  const c=bounds.getCenter(new THREE.Vector3()),s=bounds.getSize(new THREE.Vector3()),w=Math.max(s.x,4),d=Math.max(s.z,4),y=bounds.min.y+THREE.MathUtils.clamp(s.y*.18,1.2,1.65);
+  const c=bounds.getCenter(new THREE.Vector3()),s=bounds.getSize(new THREE.Vector3()),w=Math.max(s.x,4),d=Math.max(s.z,4),y=c.y;
   const spacing=Math.max(w/4,d/5),radius=Math.max(spacing*2.8,sceneExtent()*.27),z=[];
   for(let row=0;row<4;row++)for(let col=0;col<5;col++){
     const i=row*5+col;
@@ -204,75 +200,60 @@ function distributeZones(){
   }
   return z;
 }
-
 function updateSoundLayout(){
   SOUND_ZONES=distributeZones();
   if(!audio)return;
   audio.sources.forEach((source,i)=>{
-    source.zone=SOUND_ZONES[i];
-    setPos(source.panner,source.zone.position,audio.ctx.currentTime);
-    source.panner.refDistance=Math.max(source.zone.radius*.05,.25);
-    source.panner.maxDistance=source.zone.radius*1.25;
+    source.zone=SOUND_ZONES[i];setPos(source.panner,source.zone.position,audio.ctx.currentTime);
+    source.panner.refDistance=Math.max(source.zone.radius*.05,.25);source.panner.maxDistance=source.zone.radius*1.25;
   });
 }
-
 function createAudioWorld(){
-  const C=window.AudioContext||window.webkitAudioContext,ctx=new C(),master=ctx.createGain();
-  master.gain.value=.46;master.connect(ctx.destination);
-  SOUND_ZONES=distributeZones();
-  return{ctx,master,sources:SOUND_ZONES.map(z=>makeSource(ctx,master,z))};
+  const C=window.AudioContext||window.webkitAudioContext,ctx=new C(),master=ctx.createGain();master.gain.value=.46;master.connect(ctx.destination);
+  SOUND_ZONES=distributeZones();return{ctx,master,sources:SOUND_ZONES.map(z=>makeSource(ctx,master,z))};
 }
 function chain(ctx,dest,z){
   const input=ctx.createGain(),filter=ctx.createBiquadFilter(),gain=ctx.createGain(),p=ctx.createPanner();
-  filter.type='lowpass';filter.Q.value=.45;gain.gain.value=.0001;
-  p.panningModel='HRTF';p.distanceModel='linear';p.refDistance=Math.max(z.radius*.05,.25);p.maxDistance=z.radius*1.25;p.rolloffFactor=.35;
-  setPos(p,z.position,ctx.currentTime);input.connect(filter).connect(gain).connect(p).connect(dest);
-  return{input,filter,gain,panner:p,zone:z};
+  filter.type='lowpass';filter.Q.value=.45;gain.gain.value=.0001;p.panningModel='HRTF';p.distanceModel='linear';p.refDistance=Math.max(z.radius*.05,.25);p.maxDistance=z.radius*1.25;p.rolloffFactor=.35;
+  setPos(p,z.position,ctx.currentTime);input.connect(filter).connect(gain).connect(p).connect(dest);return{input,filter,gain,panner:p,zone:z};
 }
 function makeSource(ctx,d,z){const c=chain(ctx,d,z);if(z.type==='drone')return drone(ctx,c,z);if(z.type==='noise')return noise(ctx,c,z);if(z.type==='bell')return bell(ctx,c,z);if(z.type==='pulse')return pulse(ctx,c,z);return hit(ctx,c,z)}
 function drone(ctx,c,z){const mix=ctx.createGain(),a=ctx.createOscillator(),b=ctx.createOscillator(),l=ctx.createOscillator(),lg=ctx.createGain();mix.gain.value=.05;a.type=z.tone||'sine';b.type='sine';a.frequency.value=z.hz;b.frequency.value=z.hz*1.502;l.frequency.value=z.param||.15;lg.gain.value=z.hz*.015;l.connect(lg).connect(a.frequency);a.connect(mix);b.connect(mix);mix.connect(c.input);a.start();b.start();l.start();return c}
-function noise(ctx,c,z){const buf=ctx.createBuffer(1,ctx.sampleRate,ctx.sampleRate),data=buf.getChannelData(0);let last=0;for(let i=0;i<data.length;i++){const w=Math.random()*2-1;last=last*z.shade+w*(1-z.shade);data[i]=last*2}const src=ctx.createBufferSource(),g=ctx.createGain();src.buffer=buf;src.loop=true;g.gain.value=.20;src.connect(g).connect(c.input);src.start();return c}
+function noise(ctx,c,z){const buf=ctx.createBuffer(1,ctx.sampleRate,ctx.sampleRate),data=buf.getChannelData(0);let last=0;for(let i=0;i<data.length;i++){const w=Math.random()*2-1;last=last*z.shade+w*(1-z.shade);data[i]=last*2}const src=ctx.createBufferSource(),g=ctx.createGain();src.buffer=buf;src.loop=true;g.gain.value=.2;src.connect(g).connect(c.input);src.start();return c}
 function pulse(ctx,c,z){const o=ctx.createOscillator(),m=ctx.createOscillator(),mg=ctx.createGain(),g=ctx.createGain();o.type='sine';o.frequency.value=z.hz;m.frequency.value=z.param;mg.gain.value=z.hz*.22;g.gain.value=.07;m.connect(mg).connect(o.frequency);o.connect(g).connect(c.input);o.start();m.start();return c}
-function bell(ctx,c,z){let next=ctx.currentTime+.2+Math.random();const timer=setInterval(()=>{while(next<ctx.currentTime+.2){const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=z.hz*(.997+Math.random()*.006);g.gain.setValueAtTime(.0001,next);g.gain.exponentialRampToValueAtTime(.10,next+.008);g.gain.exponentialRampToValueAtTime(.0001,next+.58);o.connect(g).connect(c.input);o.start(next);o.stop(next+.62);next+=z.param*(.78+Math.random()*.45)}},90);return{...c,timer}}
+function bell(ctx,c,z){let next=ctx.currentTime+.2+Math.random();const timer=setInterval(()=>{while(next<ctx.currentTime+.2){const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=z.hz*(.997+Math.random()*.006);g.gain.setValueAtTime(.0001,next);g.gain.exponentialRampToValueAtTime(.1,next+.008);g.gain.exponentialRampToValueAtTime(.0001,next+.58);o.connect(g).connect(c.input);o.start(next);o.stop(next+.62);next+=z.param*(.78+Math.random()*.45)}},90);return{...c,timer}}
 function hit(ctx,c,z){const o=ctx.createOscillator(),g=ctx.createGain();o.type=z.tone||'sine';o.frequency.value=z.hz;g.gain.value=0;o.connect(g).connect(c.input);o.start();let next=ctx.currentTime+.1+Math.random()*.3;const timer=setInterval(()=>{while(next<ctx.currentTime+.15){g.gain.cancelScheduledValues(next);g.gain.setValueAtTime(.0001,next);g.gain.exponentialRampToValueAtTime(.16,next+.005);g.gain.exponentialRampToValueAtTime(.0001,next+.065);next+=z.param*(.88+Math.random()*.24)}},55);return{...c,timer}}
 function setPos(p,v,t){if(p.positionX){p.positionX.setValueAtTime(v.x,t);p.positionY.setValueAtTime(v.y,t);p.positionZ.setValueAtTime(v.z,t)}else p.setPosition(v.x,v.y,v.z)}
 
 function updateAudio(){
   if(!audio)return;
   const ctx=audio.ctx,now=ctx.currentTime;
-  const f=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
-  const u=new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion).normalize();
-  const L=ctx.listener;
+  const f=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize(),u=new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion).normalize(),L=ctx.listener;
   if(L.positionX){
     L.positionX.setTargetAtTime(camera.position.x,now,.015);L.positionY.setTargetAtTime(camera.position.y,now,.015);L.positionZ.setTargetAtTime(camera.position.z,now,.015);
     L.forwardX.setTargetAtTime(f.x,now,.015);L.forwardY.setTargetAtTime(f.y,now,.015);L.forwardZ.setTargetAtTime(f.z,now,.015);
     L.upX.setTargetAtTime(u.x,now,.015);L.upY.setTargetAtTime(u.y,now,.015);L.upZ.setTargetAtTime(u.z,now,.015);
   }else{L.setPosition(camera.position.x,camera.position.y,camera.position.z);L.setOrientation(f.x,f.y,f.z,u.x,u.y,u.z)}
-  const ranked=audio.sources.map((s,i)=>({i,d:camera.position.distanceTo(s.zone.position)})).sort((a,b)=>a.d-b.d);
-  const rank=new Map(ranked.map((x,i)=>[x.i,i]));
+  const ranked=audio.sources.map((s,i)=>({i,d:camera.position.distanceTo(s.zone.position)})).sort((a,b)=>a.d-b.d),rank=new Map(ranked.map((x,i)=>[x.i,i]));
   audio.sources.forEach((s,i)=>{
-    const dist=camera.position.distanceTo(s.zone.position),n=THREE.MathUtils.clamp(1-dist/s.zone.radius,0,1),r=rank.get(i);
-    const rankGain=r<3?1:r<6?.34:.04,prox=Math.pow(n,.78),vol=.0001+prox*.30*rankGain,cut=650+Math.pow(n,.72)*9000;
-    s.gain.gain.setTargetAtTime(vol,now,.11);s.filter.frequency.setTargetAtTime(cut,now,.14);
+    const dist=camera.position.distanceTo(s.zone.position),n=THREE.MathUtils.clamp(1-dist/s.zone.radius,0,1),r=rank.get(i),rankGain=r<3?1:r<6?.34:.04,prox=Math.pow(n,.78);
+    s.gain.gain.setTargetAtTime(.0001+prox*.30*rankGain,now,.11);s.filter.frequency.setTargetAtTime(650+Math.pow(n,.72)*9000,now,.14);
   });
 }
 
-let previous=performance.now(),lastMobileRender=0;
-function frame(now){
-  requestAnimationFrame(frame);
+let previous=performance.now();
+renderer.setAnimationLoop(now=>{
   const dt=Math.min((now-previous)/1000,.05);previous=now;
-  updateNavigation(dt);updateAudio();
-  if(!isMobile()||now-lastMobileRender>=33){renderer.render(scene,camera);lastMobileRender=now;}
+  updateNavigation(dt);updateAudio();renderer.render(scene,camera);
   if(audio&&splatReady){
     const nearest=audio.sources.map(s=>({name:s.zone.name,d:camera.position.distanceTo(s.zone.position)})).sort((a,b)=>a.d-b.d).slice(0,3);
     status.textContent=`${currentScene.label} · ${sceneInfo}\nnearest: ${nearest.map(x=>`${x.name} ${x.d.toFixed(1)}m`).join(' · ')}`;
   }
-}
-requestAnimationFrame(frame);
+});
 
 addEventListener('resize',()=>{
   camera.aspect=innerWidth/innerHeight;camera.fov=isMobile()?67:62;camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(devicePixelRatio||1,isMobile()?.78:1.35));renderer.setSize(innerWidth,innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio||1,isMobile()?.8:1.35));renderer.setSize(innerWidth,innerHeight);
 });
 
 loadScene(currentScene);
